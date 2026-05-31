@@ -10,7 +10,7 @@ import torch
 import torch.distributed as dist
 import yaml
 import torchaudio
-from torchvision.io import write_video
+from video import write_video
 
 from nava_src.utils.common import set_seed
 from nava_src.models.nava.utils.model_loading_utils import load_fusion_checkpoint

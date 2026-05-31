@@ -14,7 +14,7 @@ from torchvision.utils import save_image
 import torch.nn.functional as F
 from scipy import linalg
 from functools import partial
-from torchvision.io import write_video
+from video import write_video
 import torchaudio
 import json
 
