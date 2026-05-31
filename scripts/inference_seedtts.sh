@@ -17,14 +17,14 @@ cd "$REPO_ROOT"
 
 LANG="${LANG:-zh}"  # zh | en
 
-CKPT="${CKPT:-NAVA.safetensors}"
+CKPT="${CKPT:-/data/models/NAVA.safetensors}"
 CONFIG="${CONFIG:-configs/nava_seedtts.yaml}"
 OUT_DIR="${OUT_DIR:-eval_results/seedtts/${LANG}}"
 DATA_FILE="${DATA_FILE:-infer_cases/meta.lst}"
 
 MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-29508}"
-NPROC="${NPROC:-8}"
+NPROC="${NPROC:-2}"
 
 if [ ! -f "$DATA_FILE" ]; then
     echo "[ERROR] DATA_FILE not found: $DATA_FILE" >&2

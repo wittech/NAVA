@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-CKPT="${CKPT:-NAVA.safetensors}"
+CKPT="${CKPT:-/data/models/NAVA.safetensors}"
 CONFIG="${CONFIG:-configs/nava.yaml}"
 OUT_DIR="${OUT_DIR:-eval_results/batch}"
 DATA_FILE="${DATA_FILE:-infer_cases/batch_infer_prompts.jsonl}"
@@ -21,7 +21,7 @@ MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-29507}"
 NNODES="${NNODES:-1}"
 NODE_RANK="${NODE_RANK:-0}"
-NPROC="${NPROC:-8}"
+NPROC="${NPROC:-2}"
 
 if [ ! -f "$DATA_FILE" ]; then
     echo "[ERROR] DATA_FILE not found: $DATA_FILE" >&2
