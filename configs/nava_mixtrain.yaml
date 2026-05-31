@@ -95,8 +95,8 @@ model:
   audio_config: nava_src/models/nava/configs/model/dit/audio_tiny.json
   video_config: nava_src/models/nava/configs/model/dit/video_tiny.json
   joint_config: nava_src/models/nava/configs/model/dit/NAVA_6B.json
-  ckpt_dir: ./
-  audio_vae_ckpt_dir: ./huggingface_upload/params
+  ckpt_dir: /data/models/NAVA
+  audio_vae_ckpt_dir: /data/models/LTX-2.3-GGUF
 
 
 # 训练

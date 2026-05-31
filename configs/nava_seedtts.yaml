@@ -58,8 +58,8 @@ model:
   cross_1d_rope: false
 
   joint_config: nava_src/models/nava/configs/model/dit/NAVA_6B.json
-  ckpt_dir: ./
-  audio_vae_ckpt_dir: ./huggingface_upload/params
+  ckpt_dir: /data/models/NAVA
+  audio_vae_ckpt_dir: /data/models/LTX-2.3-GGUF
 
 seed: 42
 flow: true

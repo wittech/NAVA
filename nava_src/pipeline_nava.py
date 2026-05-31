@@ -35,7 +35,7 @@ class AudioVideoPipeline(DiffusionPipeline):
         audio_vae, video_vae, image_vae = None, None, None
         tgt_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
-        ckpt_dir = "/data/models"
+        ckpt_dir = cfg["model"].get("ckpt_dir", "./")
         if "video" in cfg["modality"]:
             from nava_src.models.nava.utils.model_loading_utils import init_wan_vae_2_2
             from nava_src.vae.local_video_vae import LocalVideoVAEAdapter
