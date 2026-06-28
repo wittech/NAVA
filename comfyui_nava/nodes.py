@@ -492,7 +492,7 @@ class NAVASampler:
                 if waveform.dim() == 3:
                     waveform = waveform[0]  # [C, L]
                 tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                _torchaudio.save(tmp.name, waveform.cpu().float(), int(wav_dict["sample_rate"]))
+                _torchaudio.save(tmp.name, waveform.cpu().float(), int(wav_dict["sample_rate"]), backend="sox_io")
                 tmp.close()
                 _tmp_wavs.append(tmp.name)
                 spk_wav_paths.append(tmp.name)

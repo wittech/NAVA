@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import retrieve_timesteps
 import numpy as np
 import os
+import time
 
 
 class AudioVideoPipeline(DiffusionPipeline):
@@ -49,11 +50,29 @@ class AudioVideoPipeline(DiffusionPipeline):
             ltx_vae = init_ltx_vae(audio_vae_ckpt_dir, device=device)
             spk_model = None
             try:
-                spk_model = torch.hub.load(
-                    'IDRnD/ReDimNet', 'ReDimNet',
-                    model_name='M', train_type='ft_mix', dataset='vb2+vox2+cnc'
-                ).eval().to(device)
-                print(f"[AudioVAE] ReDimNet speaker model loaded successfully on {device}")
+                # Local ReDimNet weights — the .pt file holds a dict with
+                # keys {"state_dict": ..., "model_config": ...}.
+                # Construct the model via the official `redimnet` PyPI
+                # package, then load_state_dict from the local file.
+                weights_path = os.environ.get(
+                    "NAVA_REDIMNET_WEIGHTS",
+                    "/data/models/ReDimNet/M-vb2+vox2+cnc-ft_mix.pt",
+                )
+                if not os.path.exists(weights_path):
+                    raise FileNotFoundError(weights_path)
+
+                from redimnet.model import ReDimNetWrap  # pip install redimnet
+
+                payload = torch.load(
+                    weights_path, map_location="cpu", weights_only=False
+                )
+                cfg = payload["model_config"]
+                sd  = payload["state_dict"]
+                spk_model = ReDimNetWrap(**cfg)
+                res = spk_model.load_state_dict(sd, strict=True)
+                spk_model = spk_model.eval().to(device)
+                print(f"[AudioVAE] ReDimNet loaded from {weights_path} "
+                      f"(config={cfg}) on {device}")
             except Exception as e:
                 print(f"[AudioVAE] WARNING: Failed to load ReDimNet speaker model: {e}")
                 spk_model = None
