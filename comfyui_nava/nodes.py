@@ -19,6 +19,7 @@ Typical graph:
 
 import os
 import tempfile
+import time
 from typing import Optional
 
 import numpy as np
@@ -242,6 +243,23 @@ class NAVAPromptRewriter:
         if not enabled or not prompt or not prompt.strip():
             return {"ui": {"text": [prompt or ""]}, "result": (prompt,)}
 
+        # Optional: surface the true origin of any "device-side assert" by
+        # forcing synchronous CUDA. Set NAVA_DEBUG_CUDA=1 in the ComfyUI env
+        # before starting it (or export it from a launch script).
+        if os.environ.get("NAVA_DEBUG_CUDA") == "1":
+            os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+            os.environ.setdefault("TORCH_USE_CUDA_DSA", "1")
+            print("[NAVA-Rewriter] DEBUG: CUDA_LAUNCH_BLOCKING=1, "
+                  "TORCH_USE_CUDA_DSA=1 (set NAVA_DEBUG_CUDA=0 to disable)")
+
+        # Let any in-flight main-engine kernels settle before we yank VRAM
+        # back. Without this, the offload/reload can race with a still-running
+        # .generate() and trip a device-side assert inside the rewriter.
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            time.sleep(0.2)
+            torch.cuda.empty_cache()
+
         from .engine import _MODEL_CACHE as _NAVA_CACHE
         for _eng in _NAVA_CACHE.values():
             try:
@@ -271,6 +289,10 @@ class NAVAPromptRewriter:
                 _eng.reload_to_gpu()
             except Exception as _e:
                 print(f"[NAVA-Rewriter] WARN: failed to reload main engine: {_e}")
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            time.sleep(0.1)
 
         return {"ui": {"text": [rewritten]}, "result": (rewritten,)}
 

@@ -162,6 +162,33 @@ def rewrite(
         text = tokenizer.apply_chat_template(messages, **chat_kwargs)
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
+    # ----- Diagnostic: tokenizer/model vocab mismatch check -----------------
+    # "device-side assert triggered" on a brand-new model most often means the
+    # chat template produced a token id outside the embedding matrix. Catch
+    # that here with a clear Python error instead of a cryptic CUDA abort.
+    try:
+        vocab_size = len(tokenizer)
+        emb = model.get_input_embeddings()
+        emb_rows = int(emb.num_embeddings)
+        ids = inputs["input_ids"]
+        max_id = int(ids.max().item())
+        min_id = int(ids.min().item())
+        print(f"[NAVA-Rewriter] DEBUG prompt: shape={tuple(ids.shape)} "
+              f"min_id={min_id} max_id={max_id} tokenizer_vocab={vocab_size} "
+              f"model_emb_rows={emb_rows} text_len_chars={len(text)}")
+        if max_id >= emb_rows or min_id < 0:
+            raise RuntimeError(
+                f"[NAVA-Rewriter] Token id out of range: prompt uses ids in "
+                f"[{min_id}, {max_id}] but model embedding only has {emb_rows} rows "
+                f"(tokenizer reports {vocab_size}). This usually means the chat "
+                f"template inserted a special token (e.g. <think>) that the model's "
+                f"embedding table doesn't include. Try a different model path or "
+                f"a tokenizer from the same release."
+            )
+    except AttributeError:
+        # Old transformers without get_input_embeddings; skip silently.
+        pass
+
     torch.manual_seed(int(seed))
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(int(seed))
@@ -172,9 +199,18 @@ def rewrite(
     # CUDA assertion: "probability tensor contains either `inf`, `nan` or
     # element < 0". Working in fp32 inside the sampler eliminates the precision
     # loss; clamping to a sane [-1e4, 1e4] range guarantees a finite softmax.
+    _nan_warn_step = {"i": 0}
     class _SafeLogitsProcessor(LogitsProcessor):
         def __call__(self, input_ids, scores):
-            return scores.to(torch.float32).clamp(min=-1e4, max=1e4).to(scores.dtype)
+            s = scores.to(torch.float32)
+            if not torch.isfinite(s).all():
+                n_bad = int((~torch.isfinite(s)).sum().item())
+                if _nan_warn_step["i"] < 3:
+                    print(f"[NAVA-Rewriter] WARN: {n_bad} non-finite logits at "
+                          f"step {_nan_warn_step['i']} — replacing with 0")
+                    _nan_warn_step["i"] += 1
+                s = torch.where(torch.isfinite(s), s, torch.zeros_like(s))
+            return s.clamp(min=-1e4, max=1e4).to(scores.dtype)
 
     t0 = time.time()
     outputs = model.generate(
