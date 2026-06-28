@@ -7,9 +7,17 @@
 <p align="center">
   <a href="https://ernie-research.github.io/NAVA"><img src="https://img.shields.io/badge/Project-Page-1e88e5?style=flat-square&logo=googlechrome&logoColor=white" alt="Project Page"></a>
   <a href="https://arxiv.org/abs/2605.30073"><img src="https://img.shields.io/badge/arXiv-Paper-B31B1B?style=flat-square&logo=arxiv&logoColor=white" alt="arXiv"></a>
-  <a href="https://huggingface.co/ernie-research/NAVA"><img src="https://img.shields.io/badge/%F0%9F%A4%97_HuggingFace-Models-FFD21E?style=flat-square" alt="HuggingFace Models"></a>
+  <a href="https://huggingface.co/baidu/NAVA"><img src="https://img.shields.io/badge/%F0%9F%A4%97_HuggingFace-Models-FFD21E?style=flat-square" alt="HuggingFace Models"></a>
+  <a href="https://huggingface.co/spaces/baidu/NAVA"><img src="https://img.shields.io/badge/%F0%9F%A4%97_HuggingFace-Space-FF9D00?style=flat-square" alt="HuggingFace Space"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-4c1?style=flat-square" alt="License"></a>
 </p>
+
+<p align="center">
+  ⭐ <b>If you find NAVA useful, please consider giving this repo a star — it really helps!</b> ⭐
+</p>
+
+> [!TIP]
+> 🚀 **We've put up a [HuggingFace Space](https://huggingface.co/spaces/baidu/NAVA) — try NAVA online and generate a 3–5s clip from your own prompt + image. [Give it a try!](https://huggingface.co/spaces/baidu/NAVA)**
 
 NAVA is a Native Audio-Visual Alignment framework that formulates joint audio-video generation as *context-conditioned native audio-visual alignment*. NAVA first establishes audio-video correspondence in a dedicated alignment space and then applies context as external conditioning to guide the aligned representation. It is instantiated with an Align-then-Fuse MMDiT architecture, which progressively bridges modality-aware alignment and unified audio-video denoising. To support controllable speech generation, NAVA further introduces Timbre-in-Context Conditioning, which binds reference timbre cues to corresponding speech spans through the context pathway. With only **6.3B** parameters, NAVA achieves superior audio-visual synchronization and video quality, competitive audio quality, and substantially improved reference-timbre controllability.
 
@@ -35,28 +43,58 @@ https://github.com/user-attachments/assets/a02cc83d-b5a3-42ac-9a77-952e0c3bd0fe
 - **Powerful TTS Synthesis** — High-quality speech generation including long, complex sentences in English; limited other languages' support.
 - **Text-Driven Camera Control** — Specify shot composition, camera motion, and pacing directly in the prompt.
 - **Flexible Aspect Ratios** — Generate landscape, portrait, and square videos from the same checkpoint.
+- **Strong Audio & Alignment from Scratch** — Video branch warm-started from a pretrained backbone; the audio branch and audio-visual alignment are trained entirely from scratch with limited compute, yet deliver strong synchronization and audio quality.
 
 ## Quick Start
 
 **1. Install dependencies**
 
 ```bash
-# Install PyTorch matching your CUDA build first
-pip install torch torchvision torchaudio
+git clone https://github.com/ernie-research/NAVA && cd NAVA
+conda create -n nava python=3.10 -y && conda activate nava
 
-# Core + I/O + sequence parallel + (optional) vLLM rewrite + Gradio
-pip install -r requirements.txt
+# 1. PyTorch — install first, matching your CUDA. Do NOT skip and let
+#    `pip install -e .` resolve it; pip will pick a CPU wheel or clobber
+#    your existing CUDA build.
+#    cu128 covers RTX 40 / 50 series, H100/H800. Use cu121 for older cards.
+pip install torch==2.8.* torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
-# Flash-Attention has to be built with --no-build-isolation
+# 2. NAVA itself + core inference deps (editable install).
+pip install -e .
+
+# 3. flash-attn — must be a separate step with --no-build-isolation, otherwise
+#    pip builds it in a sandbox that can't see your installed torch.
 pip install flash-attn --no-build-isolation
+
+# 4. Optional extras — pick what you need:
+pip install -e ".[sp]"       # multi-GPU sequence parallel (--use_sp, xfuser)
+pip install -e ".[demo]"     # gradio_demo/ Web UI
+pip install -e ".[rewrite]"  # pe_src/ vLLM batch prompt rewriter
+pip install -e ".[all]"      # everything above
 ```
 
-> The vLLM and Gradio entries in `requirements.txt` are only needed for the prompt-rewrite server (`pe_src/`) and the interactive Web UI (`gradio_demo/`); comment them out if you don't use those paths.
+<details>
+<summary><b>Why split into four pip steps?</b></summary>
 
-**2. Download weights** (one command pulls `NAVA.safetensors` and all dependencies into the project root):
+`torch`, `flash-attn`, and `xfuser` each compile against a specific CUDA / PyTorch ABI. Listing them inside `pyproject.toml`'s base `dependencies` causes pip to re-resolve and replace your working CUDA wheels with whatever happens to be latest on PyPI — the #1 source of "env is impossible to install" reports. We deliberately keep `torch` / `triton` out of base deps and `flash-attn` out of every dep list; install order is the contract.
+
+If you must reinstall in-place, **never** run `pip install -r requirements.txt --force-reinstall` — go through the four numbered steps above.
+
+</details>
+
+**2. Download weights** (one command pulls `NAVA.safetensors`, `NAVA_fp8.safetensors`, and all dependencies into the project root):
 
 ```bash
+# Default — pulls both bf16 and fp8 checkpoints (~31 GB total)
 huggingface-cli download ernie-research/NAVA --local-dir ./
+
+# bf16 only (high-VRAM setups, e.g. 8×H100, A100 80 GB):
+huggingface-cli download ernie-research/NAVA --local-dir ./ \
+    --exclude "NAVA_fp8.safetensors"
+
+# fp8 only (single 24-48 GB GPU, ComfyUI):
+huggingface-cli download ernie-research/NAVA --local-dir ./ \
+    --exclude "NAVA.safetensors"
 ```
 
 **3. Run inference** (8 GPUs with sequence parallel) — first pick the script for your **task**:
@@ -78,13 +116,66 @@ The three scripts above keep the full model resident on GPU and require **80 GB 
 |---|---|---|---|
 | `scripts/inference.sh` (baseline) | **80 GB** | **1 s / step** | Nothing — full model resident on GPU throughout |
 | `scripts/inference_offload_t5.sh` | **48 GB** | **1 s / step** | T5 text encoder (~11 GB) moved to CPU after text encoding; zero cost during denoising |
+| `scripts/inference_fp8.sh` | **~18 GB** | **~1.1 s / step** | T5 offload + DiT block-Linears stored as `fp8_e4m3fn` + VAE spatial tiling |
 | `scripts/inference_group_offload_t5.sh` | **42 GB** | **3.5 s / step** | T5 offload + DiT backbone blocks paged CPU↔GPU one group at a time (pinned memory, async stream) + VAE spatial tiling (decode one 22×40 latent tile at a time, blend on CPU; latent is 44×80 for 704×1280) |
 
 All numbers measured at 704×1280, 37 frames, 50 steps, **8×H100** with sequence parallel. `inference_group_offload_t5.sh` exposes `OFFLOAD_GROUP_SIZE` (default `10`, range `1–30`) — smaller values keep fewer DiT blocks on GPU simultaneously, lowering peak VRAM in exchange for more CPU↔GPU transfers per step. Pass it as an env var when launching the script.
 
-For batch runs, custom prompts, or other modes, see [Inference](#inference). For the full weight manifest, see [Model Weights](#model-weights).
+<details>
+<summary><b>GPU compatibility matrix (single-GPU FP8 path)</b></summary>
 
-**4. Batch rewrite your prompts** (recommended before any inference):
+| GPU | VRAM | Status | Notes |
+|---|---|---|---|
+| H100 / H800 / A100 80G | 80 GB | ✅ Default | bf16 SP=8 or FP8 single-GPU — both work |
+| RTX 5090 | 32 GB | ✅ Default | `bash scripts/inference_fp8.sh` runs as-is. flash-attn ≥ 2.8 needed for sm_120 |
+| RTX 4090 / 4090D | 24 GB | ✅ With group offload | Use `inference_group_offload_t5.sh`-style flags: `--t5_offload --group_offload --vae_tiling`, `OFFLOAD_GROUP_SIZE=2~3`, `VAE_TILE_H/W=16/30`. Peak ~18 GB |
+| RTX 3090 / 4080 / A6000 | 24 GB | ✅ With group offload | Same as 4090 |
+| RTX 4070 Ti / 5070 Ti | 16 GB | ⚠️ Tight | Requires `OFFLOAD_GROUP_SIZE=1` + `VAE_TILE_H/W=14/26`. Peak ~14 GB, slower |
+| RTX 3060 / 4060 / 5060 | 12 GB | ❌ Not supported at default 704×1280×37 | Even with maximum offload, peak stays >12 GB. Possible only if you drop resolution to 480×832 and frames to 17–25, with degraded quality |
+
+FP8 weight-only is **dequant-to-bf16** at compute time (`NAVA_FP8/` Phase 1) — it saves VRAM but does **not** unlock FP8 tensor cores yet, so 5090 / 4090 / H100 see no compute speedup over bf16.
+
+</details>
+
+For end-to-end runs that include prompt rewriting (and optional VL image captioning), see [§4 below](#4-end-to-end-workflows-with-prompt-rewrite). For batch runs, custom prompts, or other modes, see [Inference](#inference). For the full weight manifest, see [Model Weights](#model-weights).
+
+**4. End-to-end workflows with prompt rewrite**
+
+NAVA was trained on long, structured Chinese captions, so short prompts (and any I2AV input where the image carries scene info) benefit from an inline rewrite step. Two ready-to-run scripts cover the two common cases:
+
+```bash
+# Text-only T2AV — short prompts get rewritten before FP8 generation.
+# Default JSONL: infer_cases/general/prompts_simple.jsonl
+bash scripts/inference_fp8_rewrite.sh
+
+# I2AV — VL captions the image, the caption is composed with the user
+# prompt, then rewritten before FP8 generation. Samples without
+# image_path fall back to the plain rewrite path.
+# Default JSONL: infer_cases/general/prompts_simple_i2v.jsonl
+bash scripts/inference_fp8_vl_rewrite.sh
+```
+
+Pipeline per sample (rank 0): `[image → VL caption → compose →] Rewriter → broadcast → FP8 DiT → VAE`. Override `CKPT` / `DATA_FILE` / `OUT_DIR` etc. with env vars:
+
+```bash
+CKPT=NAVA_fp8.safetensors DATA_FILE=my.jsonl OUT_DIR=eval_results/run1 \
+    bash scripts/inference_fp8_rewrite.sh
+```
+
+**Choosing the rewriter model.** Both `Qwen3-4B-Instruct-2507` and `Qwen3-4B-Thinking-2507` are bundled; switch via `REWRITE_MODEL`:
+
+| Model | Latency | Reliability |
+|---|---|---|
+| **Qwen3-4B-Instruct-2507** *(default)* | ~1–3 s/prompt | Occasionally malformed → triggers retry. Pick this for throughput |
+| **Qwen3-4B-Thinking-2507** | ~10–20 s/prompt (emits `<think>` tokens) | Virtually no retries. Pick this for batch / overnight runs |
+
+```bash
+REWRITE_MODEL=pe_src/Qwen3-4B-Thinking-2507 bash scripts/inference_fp8_rewrite.sh
+```
+
+The VL captioner used by `inference_fp8_vl_rewrite.sh` defaults to `VL_MODEL=pe_src/Qwen3-VL-4B-Instruct`; same override pattern.
+
+**5. (Alternative) Pre-rewrite a list of prompts via vLLM** — useful for offline batches of hundreds-to-thousands of prompts:
 
 ```bash
 # Start the vLLM rewrite server once (stays in the background)
@@ -143,20 +234,28 @@ We conduct human GSB (Win / Tie / Lose) preference studies on both T2AV and TI2A
 
 ### Input Format (JSONL)
 
-All inference modes use a unified **JSONL** format (one JSON object per line):
+All inference modes use a unified **JSONL** format (one JSON object per line). The repo ships several prebuilt JSONLs under `infer_cases/general/` — point any inference script at them via `DATA_FILE=...`, or use them as templates when writing your own:
+
+| File | Used as default by | Contents |
+|---|---|---|
+| `infer_cases/general/prompts.jsonl` | `inference.sh`, `inference_fp8.sh`, etc. | Long structured T2AV prompts (production format) |
+| `infer_cases/general/prompts_simple.jsonl` | `inference_fp8_rewrite.sh` | Short text-only prompts — meant to be expanded by the rewriter |
+| `infer_cases/general/prompts_simple_i2v.jsonl` | `inference_fp8_vl_rewrite.sh` | Short prompts + `image_path` (+ optional `spk_wavs`) for I2AV |
+
+Format:
 
 ```jsonl
 {"prompt": "一位男子在海边奔跑，镜头跟随。写实电影感，自然光。背景是海浪声和风声。"}
-{"prompt": "描述文本...", "image_path": "/abs/path/to/first_frame.png"}
+{"prompt": "描述文本...", "image_path": "infer_cases/timbre/wolverine.png"}
 {"prompt": "两人对话<S>Hello<E><S>Hi there<E>", "spk_wavs": ["/path/to/spk1.wav", "/path/to/spk2.wav"]}
-{"prompt": "...", "image_path": "/path/to/img.png", "spk_wavs": ["/path/to/spk.wav"]}
+{"prompt": "...", "image_path": "infer_cases/timbre/peter.png", "spk_wavs": ["infer_cases/timbre/peter.wav"]}
 ```
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `prompt` | Yes | Text caption (also accepts legacy `text` field name) |
-| `image_path` | No | Absolute path to first frame image → auto-enables I2V mode for this sample |
-| `spk_wavs` | No | List of absolute paths to speaker reference WAVs (max 2) for timbre control |
+| `image_path` | No | Path to first-frame image — absolute, or relative to the repo root. Auto-enables I2V for this sample |
+| `spk_wavs` | No | Speaker reference WAVs (max 2), absolute or repo-root-relative paths, for timbre control |
 
 A single JSONL file can mix text-only, I2V, and timbre-control entries.
 
@@ -200,7 +299,42 @@ SETUPTOOLS_USE_DISTUTILS=stdlib torchrun \
     --use_sp
 ```
 
-### T2A (Audio-Only, with optional Timbre Control)
+### FP8 Quantization (Lower VRAM)
+
+Quantize the DiT backbone block-Linears to `fp8_e4m3fn` to cut backbone weight memory roughly in half (~12 GB → ~6 GB) — useful for fitting NAVA on smaller GPUs without the 3× slowdown of `group_offload`. Norms / modulation / VAE / T5 stay in bf16; only the `(self_attn | cross_attn | ffn)` Linears inside `*_blocks.<i>.` are quantized.
+
+**Step 1 — get an fp8 checkpoint.** Two paths:
+
+```bash
+# Option A: download the pre-quantized release (recommended, no GPU needed)
+huggingface-cli download ernie-research/NAVA --local-dir ./ \
+    --include "NAVA_fp8.safetensors"
+
+# Option B: convert your own (use this if you fine-tuned NAVA — quantize the
+# resulting checkpoint locally, no need to re-upload). Loads NAVA.safetensors
+# on CPU, ~30 GB peak RAM during conversion.
+python -m NAVA_FP8.convert_to_fp8 -i NAVA.safetensors -o NAVA_fp8.safetensors
+```
+
+**Step 2 — run inference** with the dedicated script:
+
+```bash
+bash scripts/inference_fp8.sh
+# or override paths
+CKPT=NAVA_fp8.safetensors DATA_FILE=my.jsonl bash scripts/inference_fp8.sh
+```
+
+To enable fp8 in any other inference script, add `--weight_dtype fp8_e4m3fn` (or rely on auto-detection by simply pointing `--ckpt` at an fp8 file — `--weight_dtype` defaults to `auto`).
+
+| Mode | When to use |
+|---|---|
+| `--weight_dtype auto` (default) | Detects fp8 by scanning the state-dict — drop in `NAVA_fp8.safetensors` and it just works |
+| `--weight_dtype fp8_e4m3fn` | Force the fp8 patch path (warns if checkpoint is not fp8) |
+| `--weight_dtype bf16` | Force the standard bf16 path (warns if checkpoint is fp8) |
+
+Phase 1 is **weight-only quantization** — matmul still runs in bf16 after on-the-fly dequant, so VRAM drops but compute is ~10% slower per step than bf16. The big win is avoiding `group_offload` on 24 GB single-GPU setups (~2.5× faster end-to-end than `bf16 + group_offload`). See [`NAVA_FP8/README.md`](NAVA_FP8/README.md) for design details, the conversion CLI, and the numerical-alignment test (`python -m NAVA_FP8.tests.verify_numerics`).
+
+
 
 Generate audio without video using the same NAVA checkpoint. Supports both pure sound-design prompts and timbre-controlled speech — the distinction is simply whether `spk_wavs` is present in the JSONL entry.
 
@@ -268,6 +402,12 @@ python gradio_demo/gradio_server.py --debug --port 8000
 ### Prompt Engineering (Rewrite)
 
 For optimal generation quality, **always rewrite your prompt before inference** — especially if the input is in English or short. NAVA is primarily trained on **high-quality Chinese dense captions**; the rewriter expands a brief description into a single-paragraph cinematic prompt with explicit subject / scene / motion timeline / camera language / audio design — the format that activates the model's full potential.
+
+> [!TIP]
+> **Prefer a commercial LLM if available.**
+>
+> - **Best:** Call GPT / Gemini / Doubao etc. with **thinking mode on**, using the same system prompt at `pe_src/prompts/rewrite_template.txt`. Output is more accurate and better formatted.
+> - **Fallback:** The bundled Qwen3-4B-Thinking-2507 paths below — usable but **less stable**, always double-check the result is one paragraph, `<S>...<E>` preserved, no leftover thinking artifacts.
 
 We ship three rewrite pathways. **Pick by use case:**
 
@@ -393,73 +533,14 @@ accelerate launch --config_file fsdp_config_auto.yaml \
 
 Both `.safetensors` and `.ckpt` checkpoints are supported. If the given path is not found, the loader automatically falls back to the `.ckpt` variant. Safetensors files contain weights only and always behave like `--load_ckpt_only`.
 
-### Key Hyperparameters
-
-All hyperparameters are controlled via the YAML config — no CLI overrides. Edit or copy `configs/nava.yaml` / `configs/nava_mixtrain.yaml` to change settings.
-
-| Hyperparameter | YAML key | Default |
-|----------------|----------|---------|
-| Learning rate | `lr` | `1e-4` |
-| Batch size (per GPU) | `batch_size` | — |
-| Gradient accumulation | `grad_accum_steps` | `1` (`4` for mixed training) |
-| Max steps | `max_steps` | — |
-| Save interval | `save_every` | `2500` |
-| Output dir | `out_dir` | — |
-| Target frames | `data.video_tgt_frames` | 121 (4N+1) |
-| Video FPS | `data.video_fps` | `24` |
-| Max audio duration | `data.max_audio_duration` | `10.0` |
-| Length bucketing | `data.use_length_buckets` | `false` |
-| Audio loss weight | `audio_loss_coff` | `0.2` |
-| Video loss weight | `vision_loss_coff` | `1.0` |
-
-See [`train/README.md`](train/README.md) for the full reference including async dataloader tuning (`io_workers`, `queue_size`) and multi-node setup.
-
-## Configuration
-
-The repository ships a single inference config — `configs/nava.yaml` — used by every script (`scripts/inference.sh`, `scripts/inference_timbre.sh`, `gradio_demo/start_gradio.sh`).
-
-### Key Config Options
-
-```yaml
-modality: audio_video          # audio_video / audio / video
-pipeline: nava_src.pipeline_nava.AudioVideoPipeline
-use_bf16: true
-scheduler_unipc: true          # UniPC multi-step scheduler (faster)
-use_mmdit_model: true          # Use unified MMDiT (vs older FusionModel)
-align_3d_cfg: true             # 3D cross-modal CFG for AV alignment
-
-# Guidance scales
-video_guidance_scale: 3.0      # Video CFG strength
-audio_guidance_scale: 2.0      # Audio CFG strength
-video_align_guidance_scale: 3.0  # Video cross-modal alignment
-audio_align_guidance_scale: 2.0  # Audio cross-modal alignment
-
-# Timbre CFG (used together with --timbre_cfg + spk_wavs in JSONL)
-timbre_cfg: true                 # Master switch (CLI --timbre_cfg overrides)
-timbre_align_guidance_scale: 3.0 # Strength of speaker-reference steering;
-                                 # ↑ tighter timbre match, ↓ more model freedom
-
-# Model architecture
-model:
-  joint_config: nava_src/models/nava/configs/model/dit/NAVA_6B.json
-  ckpt_dir: ./                 # Wan2.2-TI2V-5B weights directory
-  # audio_vae_ckpt_dir: /path/to/audio_vae/params   # optional override
-
-# Data
-data:
-  audio_tokens_per_sec: 25
-  video_fps: 24
-  add_spk_emb: true            # Enable speaker embeddings
-  spk_emb_prob: 0.9            # Speaker embedding injection probability
-```
-
 ## Model Weights
 
 The single `huggingface-cli download` in [Quick Start](#quick-start) pulls everything below — listed here for reference and licensing transparency.
 
 | Path | Description |
 |---|---|
-| `NAVA.safetensors` | 24 GB — NAVA model weights |
+| `NAVA.safetensors` | 24 GB — NAVA model weights (bf16 master, recommended for ≥48 GB GPUs) |
+| `NAVA_fp8.safetensors` | ~7 GB — fp8_e4m3fn quantized variant for single-GPU / ComfyUI use; pair with `--weight_dtype fp8_e4m3fn` (or rely on auto-detection). See [Inference → FP8 Quantization](#fp8-quantization-lower-vram) |
 | `nava.yaml` | Inference config (drop-in replacement for `configs/nava.yaml`) |
 | `config.json` | Model architecture config |
 | `example_prompts.jsonl` | Example JSONL prompts covering T2AV, T2A, timbre control, and I2AV |
@@ -475,6 +556,29 @@ The LTX audio-VAE Python code is vendored under `nava_src/vendor/ltx_core/` (see
 The source code in this repository is released under the Apache License 2.0.
 
 Model weights, pretrained backbones, tokenizers, audio VAEs, speaker encoders, and prompt-rewriting models may be subject to different licenses from their original providers. This includes, but is not limited to, Wan2.2, LTX-Video, Qwen3, and ReDimNet. Users are responsible for complying with the corresponding licenses of all third-party components.
+
+## ComfyUI
+
+Single-GPU audio-video generation via drag-and-drop workflow. Supports T2AV, I2AV, and timbre-controlled I2AV with FP8 inference (~18 GB VRAM).
+
+**Setup** — symlink the package into ComfyUI's custom_nodes:
+
+```bash
+cd <ComfyUI-root>/custom_nodes && ln -s /path/to/NAVA/comfyui_nava .
+cd <ComfyUI-root>
+ln -s /path/to/NAVA/nava_src .   && ln -s /path/to/NAVA/configs .
+ln -s /path/to/NAVA/NAVA_FP8 .   && ln -s /path/to/NAVA/NAVA_fp8.safetensors .
+ln -s /path/to/NAVA/pe_src .     && ln -s /path/to/NAVA/Wan2.2-TI2V-5B .
+```
+
+Then restart ComfyUI and drag any JSON from `comfyui_nava/examples/` onto the canvas to load a pre-wired workflow.
+
+For full node reference and workflow walkthroughs, see [comfyui_nava/README.md](comfyui_nava/README.md).
+
+## TODO
+
+- [x] FP8 weight-only quantization
+- [x] ComfyUI workflow with FP8
 
 ## Citation
 
