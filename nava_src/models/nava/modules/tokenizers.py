@@ -44,6 +44,18 @@ class HuggingfaceTokenizer:
 
         # init tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(name, **kwargs)
+        # Some HF tokenizers (UMT5-XXL, mT5, Flan-T5) ship without a pad_token.
+        # We pad via `padding='max_length'` in __call__, so we MUST have one.
+        # UMT5-XXL natively uses <pad> (id=0). Fall back to eos_token if the
+        # tokenizer has one, otherwise add a dedicated [PAD] token.
+        if self.tokenizer.pad_token is None:
+            if getattr(self.tokenizer, "eos_token", None):
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+                print(f"[NAVA-Tokenizer] pad_token missing, set to eos_token "
+                      f"({self.tokenizer.pad_token!r}) for {name}")
+            else:
+                self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+                print(f"[NAVA-Tokenizer] pad_token missing, added [PAD] for {name}")
         self.vocab_size = self.tokenizer.vocab_size
 
     def __call__(self, sequence, **kwargs):
