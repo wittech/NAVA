@@ -198,7 +198,14 @@ class LocalAudioVAEAdapter:
 
         if os.path.exists(data_path):
             try:
-                wav, sr = torchaudio.load(data_path)
+                # Avoid torchaudio.load: recent torchaudio dispatches through
+                # torchcodec which fails on PyTorch 2.10+ (undefined symbol:
+                # torch_from_blob). soundfile uses libsndfile directly.
+                # torchaudio.load returns (channels, samples); soundfile
+                # returns (frames, channels) so transpose + add axis.
+                import soundfile as _sf
+                wav_np, sr = _sf.read(data_path, always_2d=True)
+                wav = torch.from_numpy(wav_np).float().T  # [C, L]
                 if sr != self.sample_rate:
                     wav = torchaudio.functional.resample(wav, orig_freq=sr, new_freq=self.sample_rate)
                 if start is not None and duration is not None:

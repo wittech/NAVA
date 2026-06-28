@@ -167,7 +167,13 @@ class NAVAEngine:
             spk_embs_list = []
             for wav_path in spk_wav_paths:
                 if os.path.exists(wav_path):
-                    waveform, sr = torchaudio.load(wav_path)
+                    # Use soundfile instead of torchaudio.load to bypass
+                    # torchcodec (incompatible with PyTorch 2.10+).
+                    # torchaudio.load returns (C, L); soundfile returns
+                    # (frames, channels) so transpose + add axis.
+                    import soundfile as _sf
+                    wav_np, sr = _sf.read(wav_path, always_2d=True)
+                    waveform = torch.from_numpy(wav_np).float().T  # [C, L]
                     with torch.no_grad():
                         spk_emb = self.pipe.audio_vae.get_speaker_embedding(
                             waveform.to(self.device), sr

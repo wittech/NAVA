@@ -674,9 +674,14 @@ class NAVASaveVideo:
             )
             # Save a sidecar WAV next to the MP4 so audio isn't lost.
             try:
-                import torchaudio
+                # Use soundfile instead of torchaudio.save to bypass torchcodec
+                # (incompatible with PyTorch 2.10+).
+                import soundfile as _sf
                 wav_path = os.path.splitext(output_path)[0] + ".wav"
-                torchaudio.save(wav_path, waveform, sample_rate)
+                wav_np = waveform.cpu().float().numpy()
+                if wav_np.ndim == 2:
+                    wav_np = wav_np.T  # [C, L] -> [L, C]
+                _sf.write(wav_path, wav_np, sample_rate)
                 print(f"[NAVA] Sidecar audio: {wav_path}")
             except Exception as e2:
                 print(f"[NAVA] Sidecar WAV write also failed: {e2}")

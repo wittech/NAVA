@@ -432,6 +432,19 @@ def _toWav(x):
     x = x.clamp(-1.0, 1.0)
     return x
 
+
+def _sf_write_wav(path, waveform, sample_rate):
+    """Write a waveform tensor as WAV using soundfile instead of torchaudio.
+
+    Bypasses torchcodec, which is incompatible with PyTorch 2.10+
+    (undefined symbol: torch_from_blob). waveform is (C, L) float tensor.
+    """
+    import soundfile as _sf
+    wav_np = waveform.cpu().float().numpy()
+    if wav_np.ndim == 2:
+        wav_np = wav_np.T  # [C, L] -> [L, C]
+    _sf.write(path, wav_np, int(sample_rate))
+
 def makedir_subfolders(root, data_file):
     dimensions = []
     with open(data_file, 'r', encoding='utf-8') as f:
@@ -986,7 +999,7 @@ def main():
                                     # SeedTTS 模式：直接使用 batch 中的 save_path（已包含语言和文件名）
                                     save_path = os.path.join(args.out_dir, save_paths[idx])
                                     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-                                    torchaudio.save(
+                                    _sf_write_wav(
                                         save_path,
                                         waveform.cpu().float(),
                                         sample_rate,
@@ -995,7 +1008,7 @@ def main():
                                     # 正常 T2A 模式：添加 gen_turn 后缀
                                     save_path = os.path.join(args.out_dir, save_paths[idx] + f"-{gen_turn}.wav")
                                     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-                                    torchaudio.save(
+                                    _sf_write_wav(
                                         save_path,
                                         waveform.cpu().float(),
                                         sample_rate,

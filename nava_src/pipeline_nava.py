@@ -51,7 +51,7 @@ class AudioVideoPipeline(DiffusionPipeline):
             spk_model = None
             try:
                 spk_model = torch.hub.load(
-                    '/data/models', 'ReDimNet',
+                    '/data/models/ReDimNet', 'ReDimNet',
                     model_name='M', train_type='ft_mix', dataset='vb2+vox2+cnc', source='local'
                 ).eval().to(device)
                 print(f"[AudioVAE] ReDimNet speaker model loaded successfully on {device}")
