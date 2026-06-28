@@ -74,12 +74,20 @@ def _load(model_path: str, use_4bit: bool):
         )
     else:
         load_kwargs["torch_dtype"] = torch.bfloat16
-        try:
-            import flash_attn  # noqa: F401
-            load_kwargs["attn_implementation"] = "flash_attention_2"
-            print("[NAVA-Rewriter] Using flash_attention_2")
-        except ImportError:
-            print("[NAVA-Rewriter] flash_attn not available, falling back to default attn")
+        # NOTE: flash_attention_2 on bf16 is a known NaN source on many
+        # CUDA/driver/cuDNN version combinations. Until you have confirmed
+        # a working stack (CUDA >= 12.1, flash_attn >= 2.7, PyTorch >= 2.5,
+        # driver >= 535), explicitly skip it and fall back to eager/sdpa.
+        # if os.environ.get("NAVA_USE_FLASH_ATTN", "0") != "1":
+        #     print("[NAVA-Rewriter] flash_attn disabled by default (set "
+        #           "NAVA_USE_FLASH_ATTN=1 to re-enable).")
+        # else:
+        #     try:
+        #         import flash_attn  # noqa: F401
+        #         load_kwargs["attn_implementation"] = "flash_attention_2"
+        #         print("[NAVA-Rewriter] Using flash_attention_2")
+        #     except ImportError:
+        #         print("[NAVA-Rewriter] flash_attn not available, falling back to default attn")
     model = AutoModelForCausalLM.from_pretrained(model_path, **load_kwargs)
     print(f"[NAVA-Rewriter] Loaded in {time.time() - t0:.1f}s")
     return model, tokenizer
