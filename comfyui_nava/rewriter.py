@@ -23,6 +23,7 @@ import torch
 # ---------------------------------------------------------------------------
 _HERE = os.path.dirname(os.path.realpath(__file__))
 _NAVA_ROOT = os.path.dirname(_HERE)
+_NAVA_ROOT = "/data/projects/ComfyUI/"
 _PE_SRC = os.path.join(_NAVA_ROOT, "pe_src")
 if _PE_SRC not in sys.path:
     sys.path.insert(0, _PE_SRC)

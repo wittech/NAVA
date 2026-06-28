@@ -59,7 +59,7 @@ model:
 
   joint_config: nava_src/models/nava/configs/model/dit/NAVA_6B.json
   ckpt_dir: /data/models/NAVA
-  audio_vae_ckpt_dir: /data/models/LTX-2.3-GGUF
+  audio_vae_ckpt_dir: /data/projects/ComfyUI/models/vae
 
 flow: true
 amp_dtype: bf16

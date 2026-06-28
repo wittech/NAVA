@@ -122,7 +122,7 @@ class LtxAudioVAE(torch.nn.Module):
 
 
 def init_ltx_vae(ckpt_dir, device="cuda"):
-    ckpt_path = os.path.join(ckpt_dir, "LTX2/ltx-2.3-22b-dev_audio_vae.safetensors")
+    ckpt_path = os.path.join(ckpt_dir, "LTX23_audio_vae_bf16.safetensors")
     assert os.path.exists(ckpt_path), f"LTX audio VAE checkpoint not found: {ckpt_path}"
     encoder = SingleGPUModelBuilder(
         model_path=ckpt_path,
