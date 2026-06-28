@@ -52,16 +52,36 @@ class AudioVideoPipeline(DiffusionPipeline):
             try:
                 # Local ReDimNet weights — the .pt file holds a dict with
                 # keys {"state_dict": ..., "model_config": ...}.
-                # Construct the model via the official `redimnet` PyPI
-                # package, then load_state_dict from the local file.
+                # The model source is the IDRnD/redimnet github repo, which
+                # has NO PyPI package, so we locate the cloned package via
+                # env var (NAVA_REDIMNET_PKG) and load weights from the
+                # .pt file. No network access required.
+                import importlib
+                import importlib.util
+                import sys as _sys
+
+                pkg_dir = os.environ.get(
+                    "NAVA_REDIMNET_PKG",
+                    "/data/models/ReDimNet/redimnet_pkg",
+                )
+                if not os.path.isdir(pkg_dir):
+                    raise FileNotFoundError(
+                        f"redimnet package not found at {pkg_dir}; "
+                        f"git clone https://github.com/IDRnD/redimnet {pkg_dir}"
+                    )
+                if pkg_dir not in _sys.path:
+                    _sys.path.insert(0, pkg_dir)
+                # `redimnet` is the python package inside the repo
+                ReDimNetWrap = importlib.import_module(
+                    "redimnet.model"
+                ).ReDimNetWrap
+
                 weights_path = os.environ.get(
                     "NAVA_REDIMNET_WEIGHTS",
                     "/data/models/ReDimNet/M-vb2+vox2+cnc-ft_mix.pt",
                 )
                 if not os.path.exists(weights_path):
                     raise FileNotFoundError(weights_path)
-
-                from redimnet.model import ReDimNetWrap  # pip install redimnet
 
                 payload = torch.load(
                     weights_path, map_location="cpu", weights_only=False

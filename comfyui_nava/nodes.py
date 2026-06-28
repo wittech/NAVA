@@ -482,8 +482,12 @@ class NAVASampler:
             _tmp_png = _image_tensor_to_tmp_png(image)
             image_path = _tmp_png
 
-        # Speaker reference: save AUDIO dicts to temp WAV files
-        import torchaudio as _torchaudio
+        # Speaker reference: save AUDIO dicts to temp WAV files.
+        # Use soundfile instead of torchaudio.save: recent torchaudio dispatches
+        # save() through torchcodec, which fails to load libtorchcodec against
+        # PyTorch 2.10+ (undefined symbol: torch_from_blob). soundfile uses
+        # libsndfile directly and avoids the dependency entirely.
+        import soundfile as _sf
         _tmp_wavs = []
         spk_wav_paths = []
         for wav_dict in [spk_wav_1, spk_wav_2]:
@@ -491,8 +495,12 @@ class NAVASampler:
                 waveform = wav_dict["waveform"]
                 if waveform.dim() == 3:
                     waveform = waveform[0]  # [C, L]
+                wav_np = waveform.cpu().float().numpy()
+                # soundfile expects [frames, channels]; torchaudio gives [C, L]
+                if wav_np.ndim == 2:
+                    wav_np = wav_np.T
                 tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                _torchaudio.save(tmp.name, waveform.cpu().float(), int(wav_dict["sample_rate"]), backend="sox_io")
+                _sf.write(tmp.name, wav_np, int(wav_dict["sample_rate"]))
                 tmp.close()
                 _tmp_wavs.append(tmp.name)
                 spk_wav_paths.append(tmp.name)
