@@ -46,53 +46,15 @@ class AudioVideoPipeline(DiffusionPipeline):
             video_vae = LocalVideoVAEAdapter(wan_vae, resolution=cfg["image_size"])
         if "audio" in cfg["modality"]:
             from nava_src.vae.local_audio_vae import LocalAudioVAEAdapter, init_ltx_vae
-            audio_vae_ckpt_dir = cfg["model"].get("audio_vae_ckpt_dir", "")
+            audio_vae_ckpt_dir = cfg["model"].get("audio_vae_ckpt_dir", "./params")
             ltx_vae = init_ltx_vae(audio_vae_ckpt_dir, device=device)
             spk_model = None
             try:
-                # Local ReDimNet weights — the .pt file holds a dict with
-                # keys {"state_dict": ..., "model_config": ...}.
-                # The model source is the IDRnD/redimnet github repo, which
-                # has NO PyPI package, so we locate the cloned package via
-                # env var (NAVA_REDIMNET_PKG) and load weights from the
-                # .pt file. No network access required.
-                import importlib
-                import importlib.util
-                import sys as _sys
-
-                pkg_dir = os.environ.get(
-                    "NAVA_REDIMNET_PKG",
-                    "/data/models/ReDimNet/redimnet_pkg",
-                )
-                if not os.path.isdir(pkg_dir):
-                    raise FileNotFoundError(
-                        f"redimnet package not found at {pkg_dir}; "
-                        f"git clone https://github.com/IDRnD/redimnet {pkg_dir}"
-                    )
-                if pkg_dir not in _sys.path:
-                    _sys.path.insert(0, pkg_dir)
-                # `redimnet` is the python package inside the repo
-                ReDimNetWrap = importlib.import_module(
-                    "redimnet.model"
-                ).ReDimNetWrap
-
-                weights_path = os.environ.get(
-                    "NAVA_REDIMNET_WEIGHTS",
-                    "/data/models/ReDimNet/M-vb2+vox2+cnc-ft_mix.pt",
-                )
-                if not os.path.exists(weights_path):
-                    raise FileNotFoundError(weights_path)
-
-                payload = torch.load(
-                    weights_path, map_location="cpu", weights_only=False
-                )
-                cfg = payload["model_config"]
-                sd  = payload["state_dict"]
-                spk_model = ReDimNetWrap(**cfg)
-                res = spk_model.load_state_dict(sd, strict=True)
-                spk_model = spk_model.eval().to(device)
-                print(f"[AudioVAE] ReDimNet loaded from {weights_path} "
-                      f"(config={cfg}) on {device}")
+                spk_model = torch.hub.load(
+                    '/data/models', 'ReDimNet',
+                    model_name='M', train_type='ft_mix', dataset='vb2+vox2+cnc', source='local'
+                ).eval().to(device)
+                print(f"[AudioVAE] ReDimNet speaker model loaded successfully on {device}")
             except Exception as e:
                 print(f"[AudioVAE] WARNING: Failed to load ReDimNet speaker model: {e}")
                 spk_model = None
