@@ -17,6 +17,8 @@ from typing import Optional
 
 import torch
 
+from transformers import LogitsProcessor, LogitsProcessorList
+
 # ---------------------------------------------------------------------------
 # Reach into NAVA's pe_src to reuse SYSTEM_PROMPT + extract_rewrite.
 # Layout: <nava_root>/comfyui_nava/rewriter.py  AND  <nava_root>/pe_src/*.py
@@ -164,6 +166,16 @@ def rewrite(
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(int(seed))
 
+    # Cast logits to fp32 + clamp to finite range before sampling. bf16 + a
+    # narrow top_k combined with repetition_penalty on a long <think> chain can
+    # produce NaN/Inf in the softmax, which then trips torch.multinomial's
+    # CUDA assertion: "probability tensor contains either `inf`, `nan` or
+    # element < 0". Working in fp32 inside the sampler eliminates the precision
+    # loss; clamping to a sane [-1e4, 1e4] range guarantees a finite softmax.
+    class _SafeLogitsProcessor(LogitsProcessor):
+        def __call__(self, input_ids, scores):
+            return scores.to(torch.float32).clamp(min=-1e4, max=1e4).to(scores.dtype)
+
     t0 = time.time()
     outputs = model.generate(
         **inputs,
@@ -173,6 +185,7 @@ def rewrite(
         top_k=top_k,
         do_sample=True,
         repetition_penalty=repetition_penalty,
+        logits_processor=LogitsProcessorList([_SafeLogitsProcessor()]),
     )
     new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
     raw = tokenizer.decode(new_tokens, skip_special_tokens=True)
